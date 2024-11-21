@@ -1,0 +1,255 @@
+Créer un SIEM avec Suricata et Elastic Stack sur Ubuntu 20.04
+Introduction
+Ce tutoriel vous guidera à travers les étapes nécessaires pour créer un SIEM (Système de gestion des informations et des événements de sécurité) en intégrant Suricata avec Elastic Stack (Elasticsearch, Kibana, et Filebeat) sur Ubuntu 20.04.
+
+Composants utilisés :
+
+Elasticsearch : Stockage, indexation et recherche des événements de sécurité.
+Kibana : Interface graphique pour visualiser et analyser les journaux.
+Filebeat : Collecte et envoi des journaux de Suricata à Elasticsearch.
+Suricata : IDS/IPS pour la surveillance du réseau et la détection d'intrusions.
+Prérequis
+Avant de commencer, assurez-vous que Suricata est déjà installé sur un serveur Ubuntu 20.04. Si ce n’est pas le cas, suivez les instructions d'installation de Suricata pour Ubuntu 20.04.
+
+Vous aurez également besoin de certaines signatures Suricata chargées pour générer des alertes ou supprimer du trafic.
+
+Vous aurez besoin de deux serveurs pour ce tutoriel :
+
+Serveur Suricata : Ubuntu 20.04 avec Suricata installé.
+Serveur Elasticsearch : Ubuntu 20.04 avec Elasticsearch et Kibana installés.
+Étape 1 : Installation d'Elasticsearch et Kibana
+Ajouter la clé GPG d'Elastic :
+
+bash
+Copier le code
+curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo apt-key add -
+Ajouter les sources Elastic :
+
+bash
+Copier le code
+echo "deb https://artifacts.elastic.co/packages/7.x/apt stable main" | sudo tee -a /etc/apt/sources.list.d/elastic-7.x.list
+Mettre à jour les packages et installer Elasticsearch et Kibana :
+
+bash
+Copier le code
+sudo apt update
+sudo apt install elasticsearch kibana
+Vérifier l'adresse IP privée du serveur Elasticsearch :
+
+bash
+Copier le code
+ip -brief address show
+Notez l'adresse IP privée de votre serveur Elasticsearch pour la configuration ultérieure.
+
+Étape 2 : Configuration d'Elasticsearch
+Modification de la configuration réseau d'Elasticsearch :
+
+bash
+Copier le code
+sudo nano /etc/elasticsearch/elasticsearch.yml
+Remplacez your_private_ip par l'adresse IP privée de votre serveur :
+yaml
+Copier le code
+network.bind_host: ["127.0.0.1", "your_private_ip"]
+Activer la sécurité avec X-Pack :
+
+yaml
+Copier le code
+discovery.type: single-node
+xpack.security.enabled: true
+Ajouter les règles de pare-feu pour permettre l'accès à Elasticsearch sur l'interface réseau privée :
+
+bash
+Copier le code
+sudo ufw allow in on eth1
+sudo ufw allow out on eth1
+Démarrer Elasticsearch :
+
+bash
+Copier le code
+sudo systemctl start elasticsearch.service
+Générer des mots de passe pour les utilisateurs Elasticsearch par défaut :
+
+bash
+Copier le code
+cd /usr/share/elasticsearch/bin
+sudo ./elasticsearch-setup-passwords auto
+Étape 3 : Configuration de Kibana
+Générer des clés de chiffrement pour Kibana :
+
+bash
+Copier le code
+cd /usr/share/kibana/bin/
+sudo ./kibana-encryption-keys generate -q
+Ajouter les clés générées dans la configuration de Kibana :
+
+bash
+Copier le code
+sudo nano /etc/kibana/kibana.yml
+Collez les clés générées à la fin du fichier :
+yaml
+Copier le code
+xpack.encryptedSavedObjects.encryptionKey: 66fbd85ceb3cba51c0e939fb2526f585
+xpack.reporting.encryptionKey: 9358f4bc7189ae0ade1b8deeec7f38ef
+xpack.security.encryptionKey: 8f847a594e4a813c4187fa93c884e92b
+Configurer le réseau de Kibana pour qu’il soit accessible depuis le serveur Suricata :
+
+yaml
+Copier le code
+server.host: "your_private_ip"
+Configurer les informations d'identification de Kibana :
+
+Ajoutez les identifiants d'authentification avec kibana-keystore :
+bash
+Copier le code
+sudo ./kibana-keystore add elasticsearch.username
+sudo ./kibana-keystore add elasticsearch.password
+Démarrer Kibana :
+
+bash
+Copier le code
+sudo systemctl start kibana.service
+Étape 4 : Configuration de Filebeat pour envoyer les journaux Suricata à Elasticsearch
+Modifier la configuration de Filebeat :
+
+bash
+Copier le code
+sudo nano /etc/filebeat/filebeat.yml
+Modifiez les lignes suivantes :
+yaml
+Copier le code
+output.elasticsearch:
+  hosts: ["your_private_ip:9200"]
+  username: "elastic"
+  password: "changeme"  # Remplacez par le mot de passe de l'utilisateur elastic
+Activer le module Suricata dans Filebeat :
+
+bash
+Copier le code
+sudo filebeat modules enable suricata
+Charger les tableaux de bord et les pipelines SIEM dans Elasticsearch :
+
+bash
+Copier le code
+sudo filebeat setup
+Attendez quelques minutes que le chargement soit terminé. Vous devriez voir des messages comme "Loaded dashboards" et "Loaded Ingest pipelines".
+Démarrer Filebeat :
+
+bash
+Copier le code
+sudo systemctl start filebeat.service
+Filebeat commencera à envoyer les événements du fichier eve.json de Suricata à Elasticsearch.
+
+Étape 5 : Navigation dans les tableaux de bord SIEM de Kibana
+Créer un tunnel SSH pour accéder à Kibana :
+
+Utilisez la commande SSH suivante pour créer un tunnel entre votre machine locale et le serveur Kibana :
+bash
+Copier le code
+ssh -L 5601:your_private_ip:5601 sammy@203.0.113.5 -N
+Remplacez your_private_ip par l'adresse IP privée de votre serveur Elasticsearch.
+Accéder à Kibana via votre navigateur :
+
+Ouvrez votre navigateur et accédez à http://127.0.0.1:5601.
+Connectez-vous avec l'utilisateur elastic et le mot de passe généré précédemment.
+Explorer les tableaux de bord Suricata :
+
+Dans Kibana, recherchez les tableaux de bord Suricata en utilisant la requête type:dashboard suricata.
+Vous verrez deux tableaux de bord principaux : Filebeat Suricata Events Overview et Filebeat Suricata Alerts.
+Explorer les événements et alertes :
+
+Cliquez sur les tableaux de bord pour explorer les événements Suricata enregistrés et analyser les alertes.
+Conclusion
+Félicitations ! Vous avez installé et configuré Elasticsearch, Kibana, Filebeat, et Suricata sur Ubuntu 20.04 pour créer un SIEM fonctionnel. Vous pouvez maintenant surveiller et analyser les événements de sécurité de Suricata via Kibana.
+
+Importer sur GitHub
+Pour importer ce guide sur GitHub, voici comment faire :
+
+Créez un dépôt sur GitHub, puis clonez-le localement :
+
+bash
+Copier le code
+git clone https://github.com/ton-utilisateur/ton-depot.git
+Copiez ce fichier README.md dans le répertoire de votre dépôt local.
+
+Ajoutez, commitez et poussez le fichier sur GitHub :
+
+bash
+Copier le code
+git add README.md
+git commit -m "Ajout de la procédure pour créer un SIEM avec Suricata et Elastic Stack"
+git push origin master
+Cette procédure vous guidera tout au long de l'installation et de la configuration. Si vous avez des questions ou des difficultés, n'hésitez pas à demander de l'aide !
+
+
+
+
+
+
+Vous avez dit :
+j'ai accès la plateforme de github sur navigateur comment faire pour ajouter ce process 
+ChatGPT a dit :
+ChatGPT
+Si tu as déjà accès à la plateforme GitHub via ton navigateur, voici comment ajouter ce processus (la procédure d’installation de Suricata et Elastic Stack) directement sur GitHub sans utiliser la ligne de commande, en utilisant l'interface web de GitHub :
+
+Étapes pour ajouter ce processus sur GitHub via le navigateur :
+1. Créer un nouveau dépôt (repository)
+Connecte-toi à ton compte GitHub et va sur la page d’accueil de GitHub.
+Clique sur le bouton + dans le coin supérieur droit, puis sélectionne New repository.
+Donne un nom à ton dépôt (par exemple suricata-elasticstack-siem).
+Tu peux laisser le dépôt public ou privé en fonction de ton besoin.
+Clique sur Create repository pour créer ton dépôt.
+2. Ajouter un fichier README.md avec le processus
+Une fois ton dépôt créé, GitHub t'affiche une page avec quelques instructions pour ajouter des fichiers.
+Sur cette page, clique sur le bouton Add a README (ou Create new file si tu as déjà un fichier dans ton dépôt).
+Dans la zone de texte pour le nom du fichier, entre README.md (GitHub utilise automatiquement ce fichier pour afficher des informations sur ton projet).
+Copie la procédure complète que j'ai formatée plus haut (de l’introduction à la conclusion) et colle-la dans l'éditeur de texte.
+Après avoir collé le texte, fais défiler vers le bas et dans la section Commit changes, ajoute un message pour ton commit, comme :
+"Ajout de la procédure pour créer un SIEM avec Suricata et Elastic Stack".
+Choisis Commit directly to the main branch et clique sur Commit changes.
+3. Vérifier ton dépôt
+Après avoir cliqué sur Commit changes, tu seras redirigé vers la page principale de ton dépôt.
+Tu devrais voir ton fichier README.md affiché avec le contenu du tutoriel que tu viens d’ajouter.
+4. Partager ton dépôt GitHub
+Pour partager ton dépôt, copie l'URL de la page de ton dépôt GitHub (par exemple https://github.com/ton-utilisateur/suricata-elasticstack-siem) et envoie-la à ceux avec qui tu veux partager cette procédure.
+Résumé des actions :
+Créer un nouveau dépôt GitHub.
+Ajouter un fichier README.md avec la procédure que j'ai formatée.
+Faire un commit et vérifier le fichier dans ton dépôt.
+Partager le lien vers ton dépôt avec d'autres utilisateurs.
+Cela te permettra de garder cette procédure disponible et facilement accessible à partir de GitHub.
+
+Si tu rencontres des problèmes pendant l'ajout, fais-le moi savoir, et je t'aiderai à résoudre les difficultés !
+
+
+
+
+
+
+Vous avez dit :
+File uploads require push access to this repository.
+ChatGPT a dit :
+ChatGPT
+L'erreur "File uploads require push access to this repository" signifie que tu n'as pas encore les autorisations nécessaires pour ajouter ou pousser des fichiers dans ce dépôt GitHub. Si tu n'as pas créé ce dépôt, cela peut se produire si tu essaies de modifier un dépôt auquel tu n'as pas les droits d'écriture.
+
+Solutions possibles :
+1. Si tu es le propriétaire du dépôt ou si tu veux créer un dépôt propre :
+Crée un nouveau dépôt sur GitHub (si ce n'est pas déjà fait) avec ton propre compte et assure-toi d'être le propriétaire ou d'avoir un accès complet.
+Une fois le dépôt créé, tu pourras ajouter des fichiers en suivant les étapes précédemment données.
+2. Si le dépôt appartient à quelqu'un d'autre (dépôt collaboratif) :
+Si tu veux modifier un dépôt existant, tu as besoin d'une permission d'écriture ou d'accès en tant que collaborateur. Voici ce que tu peux faire :
+Demander l'accès en tant que collaborateur : Si tu veux ajouter un fichier dans un dépôt où tu n'as pas les droits, demande au propriétaire du dépôt de t'ajouter comme collaborateur ou de te donner l'accès approprié.
+Le propriétaire peut t'ajouter en allant dans le dépôt, en cliquant sur Settings, puis sur Collaborators, et en t'invitant.
+Forker le dépôt : Si tu n'as pas accès en écriture, tu peux faire un fork du dépôt, puis ajouter des fichiers à ton fork. Une fois les modifications effectuées, tu peux créer une pull request pour proposer tes modifications au dépôt principal.
+3. Si tu veux créer un dépôt personnel :
+Crée un dépôt personnel comme décrit ci-dessus, puis suis les étapes pour ajouter un fichier README.md avec ton processus.
+Créer un nouveau dépôt sur GitHub (pour commencer depuis zéro) :
+Va sur la page d’accueil de GitHub et connecte-toi.
+Clique sur le bouton "New" pour créer un nouveau dépôt.
+Configure ton dépôt :
+Donne-lui un nom.
+Choisis s’il sera public ou privé.
+Clique sur Create repository.
+Une fois le dépôt créé, tu peux suivre les étapes que je t'ai données précédemment pour ajouter le fichier README.md contenant la procédure.
+
+Si tu veux de l'aide pour effectuer l'une de ces actions, n'hésit
